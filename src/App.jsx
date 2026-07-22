@@ -182,9 +182,14 @@ export default function App() {
         {staffList.length > 0 && (
           <div className="px-4 mt-6">
             <h2 className="text-lg font-bold text-gray-900 mb-3">স্টাফ/কারিগর লিস্ট</h2>
-            <div className="bg-white rounded-2xl shadow-sm divide-y divide-gray-100">
+            <div className="flex flex-col gap-3">
               {staffList.map((s) => (
-                <div key={s.id} className="p-4 flex items-center justify-between gap-3">
+                <div
+                  key={s.id}
+                  className={`bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 ${
+                    s.rate_type === 'monthly' ? 'border-red-900' : 'border-amber-500'
+                  }`}
+                >
                   <div className="min-w-0">
                     <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
@@ -260,9 +265,14 @@ export default function App() {
               {staffList.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো স্টাফ যোগ করা হয়নি</p>
               ) : (
-                <div className="divide-y divide-gray-100">
+                <div className="flex flex-col gap-3">
                   {staffList.map((s) => (
-                    <div key={s.id} className="py-4 flex items-center justify-between gap-3">
+                    <div
+                      key={s.id}
+                      className={`bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 ${
+                        s.rate_type === 'monthly' ? 'border-red-900' : 'border-amber-500'
+                      }`}
+                    >
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
                         <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
