@@ -52,9 +52,6 @@ export default function App() {
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [pickerMode, setPickerMode] = useState(null); // 'present' | 'break' | null
   const [pendingAction, setPendingAction] = useState(null); // { staffId, name, mode, time }
-  const [summaryStaff, setSummaryStaff] = useState(null); // { id, name }
-  const [summaryData, setSummaryData] = useState(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // ডিউটি টাইম state
   const [showDutyForm, setShowDutyForm] = useState(false);
@@ -75,6 +72,34 @@ export default function App() {
   const [productSubmitting, setProductSubmitting] = useState(false);
   const [productError, setProductError] = useState('');
 
+  // কারিগর হিসাব (প্রোডাকশন এন্ট্রি) state
+  const [showKarigorHisab, setShowKarigorHisab] = useState(false);
+  const [karigorStep, setKarigorStep] = useState('select-staff'); // select-staff | select-product | enter-qty
+  const [karigorStaff, setKarigorStaff] = useState(null);
+  const [karigorProduct, setKarigorProduct] = useState(null);
+  const [karigorQty, setKarigorQty] = useState('');
+  const [karigorSubmitting, setKarigorSubmitting] = useState(false);
+  const [karigorError, setKarigorError] = useState('');
+  const [productionSummary, setProductionSummary] = useState({}); // { staffId: {total_quantity, total_amount} }
+
+  // স্টাফের বিস্তারিত তথ্য (attendance + production + payments একসাথে)
+  const [staffDetail, setStaffDetail] = useState(null); // { id, name, attendance, production, payments }
+  const [staffDetailLoading, setStaffDetailLoading] = useState(false);
+
+  // ফান্ড/খরচ state
+  const [showFundChoice, setShowFundChoice] = useState(false);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', expense_date: '' });
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [expenseError, setExpenseError] = useState('');
+  const [expenses, setExpenses] = useState([]);
+
+  const [showWeeklyPicker, setShowWeeklyPicker] = useState(false);
+  const [weeklyStaff, setWeeklyStaff] = useState(null);
+  const [weeklyAmount, setWeeklyAmount] = useState('');
+  const [weeklySubmitting, setWeeklySubmitting] = useState(false);
+  const [weeklyError, setWeeklyError] = useState('');
+
   const fetchStaff = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/staff`);
@@ -90,6 +115,7 @@ export default function App() {
   useEffect(() => {
     fetchStaff();
     fetchAttendanceToday();
+    fetchProductionSummaryAll();
   }, []);
 
   const fetchAttendanceToday = async () => {
@@ -129,28 +155,145 @@ export default function App() {
     }
   };
 
-  const fetchSummary = async (staffId) => {
-    setSummaryLoading(true);
-    setSummaryData(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/attendance/summary/${staffId}?days=30`);
-      const data = await res.json();
-      if (data.status === 'ok') setSummaryData(data.summary);
-    } catch (err) {
-      console.error('সামারি আনতে সমস্যা হয়েছে:', err);
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
   const openAttendanceModal = () => {
     setShowAttendanceModal(true);
     fetchAttendanceToday();
   };
 
-  const openStaffSummary = (staffId, name) => {
-    setSummaryStaff({ id: staffId, name });
-    fetchSummary(staffId);
+  // স্টাফের নামে ক্লিক করলে এই ফাংশন attendance + production + payment তিনটাই একসাথে টেনে আনে
+  const openStaffDetail = async (staffId, name) => {
+    setStaffDetail({ id: staffId, name, attendance: null, production: null, payments: null });
+    setStaffDetailLoading(true);
+    try {
+      const [attRes, prodRes, payRes] = await Promise.all([
+        fetch(`${API_BASE}/api/attendance/summary/${staffId}?days=30`),
+        fetch(`${API_BASE}/api/production/staff/${staffId}/summary`),
+        fetch(`${API_BASE}/api/staff-payments/staff/${staffId}/summary`)
+      ]);
+      const [attData, prodData, payData] = await Promise.all([attRes.json(), prodRes.json(), payRes.json()]);
+      setStaffDetail({
+        id: staffId,
+        name,
+        attendance: attData.status === 'ok' ? attData.summary : null,
+        production: prodData.status === 'ok' ? prodData.summary : null,
+        payments: payData.status === 'ok' ? payData.summary : null
+      });
+    } catch (err) {
+      console.error('বিস্তারিত তথ্য আনতে সমস্যা হয়েছে:', err);
+    } finally {
+      setStaffDetailLoading(false);
+    }
+  };
+
+  const fetchProductionSummaryAll = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/production/summary-all`);
+      const data = await res.json();
+      if (data.status === 'ok') {
+        const map = {};
+        for (const row of data.summary) map[row.staff_id] = row;
+        setProductionSummary(map);
+      }
+    } catch (err) {
+      console.error('প্রোডাকশন সামারি আনতে সমস্যা হয়েছে:', err);
+    }
+  };
+
+  const submitProductionEntry = async () => {
+    setKarigorError('');
+    if (!karigorQty || parseFloat(karigorQty) <= 0) {
+      setKarigorError('কত পিস তৈরি হয়েছে লিখুন');
+      return;
+    }
+    setKarigorSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/production`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id: karigorStaff.id, product_id: karigorProduct.id, quantity: karigorQty })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setShowKarigorHisab(false);
+        setKarigorStep('select-staff');
+        setKarigorStaff(null);
+        setKarigorProduct(null);
+        setKarigorQty('');
+        fetchProductionSummaryAll();
+      } else {
+        setKarigorError(data.message || 'কিছু একটা ভুল হয়েছে');
+      }
+    } catch (err) {
+      setKarigorError('সার্ভারের সাথে কানেক্ট করা যায়নি');
+    } finally {
+      setKarigorSubmitting(false);
+    }
+  };
+
+  const handleAddExpense = async (e) => {
+    e.preventDefault();
+    setExpenseError('');
+    if (!expenseForm.description.trim() || !expenseForm.amount) {
+      setExpenseError('বিবরণ এবং টাকার পরিমাণ দিতে হবে');
+      return;
+    }
+    setExpenseSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(expenseForm)
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setExpenseForm({ description: '', amount: '', expense_date: '' });
+        fetchExpenses();
+      } else {
+        setExpenseError(data.message || 'কিছু একটা ভুল হয়েছে');
+      }
+    } catch (err) {
+      setExpenseError('সার্ভারের সাথে কানেক্ট করা যায়নি');
+    } finally {
+      setExpenseSubmitting(false);
+    }
+  };
+
+  const fetchExpenses = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/expenses`);
+      const data = await res.json();
+      if (data.status === 'ok') setExpenses(data.expenses);
+    } catch (err) {
+      console.error('খরচ লিস্ট আনতে সমস্যা হয়েছে:', err);
+    }
+  };
+
+  const submitWeeklyPayment = async () => {
+    setWeeklyError('');
+    if (!weeklyAmount || parseFloat(weeklyAmount) <= 0) {
+      setWeeklyError('কত টাকা দেওয়া হয়েছে লিখুন');
+      return;
+    }
+    setWeeklySubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/staff-payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staff_id: weeklyStaff.id, amount: weeklyAmount })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setShowWeeklyPicker(false);
+        setWeeklyStaff(null);
+        setWeeklyAmount('');
+      } else {
+        setWeeklyError(data.message || 'কিছু একটা ভুল হয়েছে');
+      }
+    } catch (err) {
+      setWeeklyError('সার্ভারের সাথে কানেক্ট করা যায়নি');
+    } finally {
+      setWeeklySubmitting(false);
+    }
   };
 
   const confirmPendingAction = async () => {
@@ -305,11 +448,11 @@ export default function App() {
   const quickActions = [
     { icon: <PlusCircle size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'নতুন প্রোডাক্ট যোগ করুন', onClick: () => { setShowProductForm(true); fetchProducts(); } },
     { icon: <HardHat size={24} className="text-amber-700" />, bg: 'bg-amber-100', label: 'নতুন কারিগর যোগ করুন', onClick: () => setShowAddForm(true) },
-    { icon: <Users size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'কারিগর হিসাব', onClick: () => {} },
+    { icon: <Users size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'কারিগর হিসাব', onClick: () => { setShowKarigorHisab(true); setKarigorStep('select-staff'); fetchProducts(); } },
     { icon: <Server size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'মেশিন যোগ করুন', onClick: () => { setShowMachineForm(true); fetchMachines(); } },
     { icon: <RefreshCw size={24} className="text-orange-700" />, bg: 'bg-orange-100', label: 'পার্টনার হিসাব', onClick: () => {} },
     { icon: <CheckCircle2 size={24} className="text-orange-700" />, bg: 'bg-orange-100', label: 'মজুরী', onClick: () => {} },
-    { icon: <CreditCard size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'ফান্ড/খরচ', onClick: () => {} },
+    { icon: <CreditCard size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'ফান্ড/খরচ', onClick: () => setShowFundChoice(true) },
     { icon: <Clock size={24} className="text-emerald-700" />, bg: 'bg-emerald-100', label: 'ডিউটি টাইম যুক্ত করুন', onClick: () => { setShowDutyForm(true); fetchDutySchedule(); } },
   ];
 
@@ -409,7 +552,12 @@ export default function App() {
                   }`}
                 >
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                    <button
+                      onClick={() => openStaffDetail(s.id, s.name)}
+                      className="font-semibold text-gray-900 text-sm text-left active:text-red-900"
+                    >
+                      {s.name}
+                    </button>
                     <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
                     {s.phone && (
                       <div className="flex items-center gap-2 mt-1.5">
@@ -434,6 +582,8 @@ export default function App() {
                   <div className="text-right shrink-0">
                     {s.rate_type === 'monthly' ? (
                       <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
+                    ) : productionSummary[s.id]?.total_amount > 0 ? (
+                      <p className="text-sm font-semibold text-red-900">৳ {productionSummary[s.id].total_amount}</p>
                     ) : (
                       <p className="text-sm font-semibold text-gray-400">—</p>
                     )}
@@ -492,7 +642,12 @@ export default function App() {
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                        <button
+                          onClick={() => openStaffDetail(s.id, s.name)}
+                          className="font-semibold text-gray-900 text-sm text-left active:text-red-900"
+                        >
+                          {s.name}
+                        </button>
                         <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
                         {s.phone && (
                           <div className="flex items-center gap-2 mt-1.5">
@@ -517,6 +672,8 @@ export default function App() {
                       <div className="text-right shrink-0">
                         {s.rate_type === 'monthly' ? (
                           <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
+                        ) : productionSummary[s.id]?.total_amount > 0 ? (
+                          <p className="text-sm font-semibold text-red-900">৳ {productionSummary[s.id].total_amount}</p>
                         ) : (
                           <p className="text-sm font-semibold text-gray-400">—</p>
                         )}
@@ -686,7 +843,7 @@ export default function App() {
                     return (
                       <button
                         key={s.staff_id}
-                        onClick={() => openStaffSummary(s.staff_id, s.name)}
+                        onClick={() => openStaffDetail(s.staff_id, s.name)}
                         className={`text-left bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 ${st.border} active:opacity-80`}
                       >
                         <div className="min-w-0">
@@ -777,46 +934,84 @@ export default function App() {
           </div>
         )}
 
-        {/* Staff 30-day Summary Modal */}
-        {summaryStaff && (
+        {/* Staff Detail Modal — attendance + production + payments একসাথে */}
+        {staffDetail && (
           <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
             <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-bold text-gray-900">{summaryStaff.name} — গত ৩০ দিন</h2>
-                <button onClick={() => { setSummaryStaff(null); setSummaryData(null); }} className="text-gray-400">
+                <h2 className="text-lg font-bold text-gray-900">{staffDetail.name} — বিস্তারিত</h2>
+                <button onClick={() => setStaffDetail(null)} className="text-gray-400">
                   <X size={22} />
                 </button>
               </div>
 
-              {summaryLoading ? (
+              {staffDetailLoading ? (
                 <div className="flex justify-center py-10">
                   <Loader2 size={28} className="animate-spin text-red-900" />
                 </div>
-              ) : summaryData ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500">
-                    <p className="text-2xl font-bold text-gray-900">{summaryData.present_days}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">উপস্থিত দিন</p>
+              ) : (
+                <div className="space-y-6">
+                  {/* ডিউটি/উপস্থিতি */}
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">গত ৩০ দিনের উপস্থিতি</h3>
+                    {staffDetail.attendance ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500">
+                          <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.present_days}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">উপস্থিত দিন</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-500">
+                          <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.absent_days}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">অনুপস্থিত দিন</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
+                          <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.present_hours}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">উপস্থিত ঘণ্টা</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500">
+                          <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.break_hours}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">ব্রেক ঘণ্টা</p>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-orange-500 col-span-2">
+                          <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.late_hours}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">মোট লেট (ঘণ্টা)</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">ডেটা পাওয়া যায়নি</p>
+                    )}
                   </div>
-                  <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-500">
-                    <p className="text-2xl font-bold text-gray-900">{summaryData.absent_days}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">অনুপস্থিত দিন</p>
+
+                  {/* প্রোডাকশন */}
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">প্রোডাকশন হিসাব</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500">
+                        <p className="text-2xl font-bold text-gray-900">{staffDetail.production?.total_quantity || 0}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট পিস</p>
+                      </div>
+                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
+                        <p className="text-2xl font-bold text-gray-900">৳ {staffDetail.production?.total_amount || 0}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট আয়</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
-                    <p className="text-2xl font-bold text-gray-900">{summaryData.present_hours}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">উপস্থিত ঘণ্টা</p>
-                  </div>
-                  <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500">
-                    <p className="text-2xl font-bold text-gray-900">{summaryData.break_hours}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">ব্রেক ঘণ্টা</p>
-                  </div>
-                  <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-orange-500 col-span-2">
-                    <p className="text-2xl font-bold text-gray-900">{summaryData.late_hours}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">মোট লেট (ঘণ্টা)</p>
+
+                  {/* পেমেন্ট */}
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-700 mb-3">সাপ্তাহিক পেমেন্ট হিসাব</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500">
+                        <p className="text-2xl font-bold text-gray-900">৳ {staffDetail.payments?.total_paid || 0}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট দেওয়া হয়েছে</p>
+                      </div>
+                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-gray-300">
+                        <p className="text-2xl font-bold text-gray-900">{staffDetail.payments?.payment_count || 0}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট বার</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-8">ডেটা পাওয়া যায়নি</p>
               )}
             </div>
           </div>
@@ -1014,6 +1209,283 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* কারিগর হিসাব — Step 1: স্টাফ সিলেক্ট */}
+        {showKarigorHisab && karigorStep === 'select-staff' && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">কোন কারিগর?</h2>
+                <button onClick={() => setShowKarigorHisab(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+              {staffList.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো স্টাফ যোগ করা হয়নি</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {staffList.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => { setKarigorStaff(s); setKarigorStep('select-product'); }}
+                      className="text-left bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 border-amber-500 active:opacity-80"
+                    >
+                      <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                      <p className="text-xs text-gray-500">{s.designation || 'পদবি নেই'}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* কারিগর হিসাব — Step 2: প্রোডাক্ট সিলেক্ট */}
+        {showKarigorHisab && karigorStep === 'select-product' && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">{karigorStaff?.name} — কোন প্রোডাক্ট?</h2>
+                <button onClick={() => { setShowKarigorHisab(false); setKarigorStep('select-staff'); }} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+              {products.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো প্রোডাক্ট যোগ করা হয়নি</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {products.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { setKarigorProduct(p); setKarigorStep('enter-qty'); }}
+                      className="text-left bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 border-amber-500 active:opacity-80"
+                    >
+                      <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
+                      <p className="text-sm font-semibold text-red-900">৳ {p.sewing_price} / পিস</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* কারিগর হিসাব — Step 3: পিস সংখ্যা লিখুন, অটো ক্যালকুলেশন */}
+        {showKarigorHisab && karigorStep === 'enter-qty' && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">{karigorStaff?.name} — {karigorProduct?.name}</h2>
+                <button onClick={() => setShowKarigorHisab(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              <label className="text-xs font-semibold text-gray-500">কত পিস তৈরি হয়েছে?</label>
+              <input
+                type="number"
+                value={karigorQty}
+                onChange={(e) => setKarigorQty(e.target.value)}
+                className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                placeholder="যেমন: ৫০"
+                autoFocus
+              />
+
+              <div className="mt-4 bg-amber-50 rounded-2xl p-4 flex items-center justify-between">
+                <span className="text-sm text-gray-600">মোট হবে</span>
+                <span className="text-lg font-bold text-red-900">
+                  ৳ {karigorQty && !isNaN(karigorQty) ? (parseFloat(karigorQty) * parseFloat(karigorProduct?.sewing_price || 0)).toFixed(2) : '0.00'}
+                </span>
+              </div>
+
+              {karigorError && <p className="text-sm text-red-600 mt-3">{karigorError}</p>}
+
+              <button
+                onClick={submitProductionEntry}
+                disabled={karigorSubmitting}
+                className="w-full mt-5 bg-red-950 text-white rounded-full py-3 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900 disabled:opacity-60"
+              >
+                {karigorSubmitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                {karigorSubmitting ? 'সেভ হচ্ছে...' : 'সেভ করুন'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ফান্ড/খরচ — অপশন চয়েস */}
+        {showFundChoice && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">ফান্ড/খরচ</h2>
+                <button onClick={() => setShowFundChoice(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => { setShowFundChoice(false); setShowExpenseForm(true); fetchExpenses(); }}
+                  className="bg-white rounded-2xl shadow-md p-4 flex items-center gap-3 border-l-4 border-red-900 active:opacity-80 text-left"
+                >
+                  <div className="w-11 h-11 rounded-xl bg-red-100 flex items-center justify-center">
+                    <CreditCard size={20} className="text-red-800" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm">ফ্যাক্টরি খরচ</p>
+                    <p className="text-xs text-gray-500">কারেন্ট বিল, ভাড়া ইত্যাদি</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => { setShowFundChoice(false); setShowWeeklyPicker(true); }}
+                  className="bg-white rounded-2xl shadow-md p-4 flex items-center gap-3 border-l-4 border-amber-500 active:opacity-80 text-left"
+                >
+                  <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center">
+                    <Wallet size={20} className="text-amber-700" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900 text-sm">স্টাফ/কারিগরের সাপ্তাহিক</p>
+                    <p className="text-xs text-gray-500">এডভান্স/সাপ্তাহিক পেমেন্ট দিন</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ফ্যাক্টরি খরচ ফর্ম */}
+        {showExpenseForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">ফ্যাক্টরি খরচ যোগ করুন</h2>
+                <button onClick={() => setShowExpenseForm(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddExpense} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">বিবরণ *</label>
+                  <input
+                    type="text"
+                    value={expenseForm.description}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                    placeholder="যেমন: কারেন্ট বিল"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">টাকার পরিমাণ (৳) *</label>
+                  <input
+                    type="number"
+                    value={expenseForm.amount}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                    placeholder="যেমন: ৫০০০"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">তারিখ</label>
+                  <input
+                    type="date"
+                    value={expenseForm.expense_date}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                  />
+                </div>
+
+                {expenseError && <p className="text-sm text-red-600">{expenseError}</p>}
+
+                <button
+                  type="submit"
+                  disabled={expenseSubmitting}
+                  className="w-full bg-red-950 text-white rounded-full py-3 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900 disabled:opacity-60"
+                >
+                  {expenseSubmitting ? <Loader2 size={18} className="animate-spin" /> : <CreditCard size={18} />}
+                  {expenseSubmitting ? 'সেভ হচ্ছে...' : 'সেভ করুন'}
+                </button>
+              </form>
+
+              {expenses.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">সাম্প্রতিক খরচ</h3>
+                  <div className="flex flex-col gap-3">
+                    {expenses.map((ex) => (
+                      <div key={ex.id} className="bg-white rounded-2xl shadow-md p-4 flex items-center justify-between border-l-4 border-red-900">
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{ex.description}</p>
+                          <p className="text-xs text-gray-400">{ex.expense_date?.slice(0, 10)}</p>
+                        </div>
+                        <p className="text-sm font-semibold text-red-900">৳ {ex.amount}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* স্টাফ/কারিগরের সাপ্তাহিক — স্টাফ পিকার */}
+        {showWeeklyPicker && !weeklyStaff && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">কাকে দিবেন?</h2>
+                <button onClick={() => setShowWeeklyPicker(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {staffList.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setWeeklyStaff(s)}
+                    className="text-left bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 border-amber-500 active:opacity-80"
+                  >
+                    <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                    <p className="text-xs text-gray-500">{s.designation || 'পদবি নেই'}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* স্টাফ/কারিগরের সাপ্তাহিক — টাকার পরিমাণ */}
+        {showWeeklyPicker && weeklyStaff && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">{weeklyStaff.name} — সাপ্তাহিক পেমেন্ট</h2>
+                <button onClick={() => { setShowWeeklyPicker(false); setWeeklyStaff(null); }} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              <label className="text-xs font-semibold text-gray-500">কত টাকা দেওয়া হয়েছে?</label>
+              <input
+                type="number"
+                value={weeklyAmount}
+                onChange={(e) => setWeeklyAmount(e.target.value)}
+                className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                placeholder="যেমন: ২০০০"
+                autoFocus
+              />
+
+              {weeklyError && <p className="text-sm text-red-600 mt-3">{weeklyError}</p>}
+
+              <button
+                onClick={submitWeeklyPayment}
+                disabled={weeklySubmitting}
+                className="w-full mt-5 bg-red-950 text-white rounded-full py-3 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900 disabled:opacity-60"
+              >
+                {weeklySubmitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                {weeklySubmitting ? 'সেভ হচ্ছে...' : 'সেভ করুন'}
+              </button>
             </div>
           </div>
         )}
