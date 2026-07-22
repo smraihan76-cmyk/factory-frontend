@@ -105,6 +105,7 @@ export default function App() {
 
   // মোট ব্যালেন্স / বিস্তারিত / ক্যাশ মেমো state
   const [paymentsSummaryAll, setPaymentsSummaryAll] = useState({}); // { staffId: {total_paid} }
+  const [salarySummaryAll, setSalarySummaryAll] = useState({}); // { staffId: {total_due} } — মাসিক বেতনের কারিগরদের জন্য
   const [showBalanceDetail, setShowBalanceDetail] = useState(false);
   const [cashMemoStaff, setCashMemoStaff] = useState(null);
   const [cashMemoData, setCashMemoData] = useState(null); // { production: [], payments: [] }
@@ -175,22 +176,28 @@ export default function App() {
     setDetailView(null);
     setDetailList([]);
     const staffRecord = staffList.find((x) => x.id === staffId) || { name };
-    setStaffDetail({ ...staffRecord, id: staffId, name: staffRecord.name || name, attendance: null, production: null, payments: null });
+    setStaffDetail({ ...staffRecord, id: staffId, name: staffRecord.name || name, attendance: null, production: null, payments: null, salary: null });
     setStaffDetailLoading(true);
     try {
-      const [attRes, prodRes, payRes] = await Promise.all([
+      const isMonthly = staffRecord.rate_type === 'monthly';
+      const [attRes, prodRes, payRes, salRes] = await Promise.all([
         fetch(`${API_BASE}/api/attendance/summary/${staffId}?days=30`),
         fetch(`${API_BASE}/api/production/staff/${staffId}/summary`),
-        fetch(`${API_BASE}/api/staff-payments/staff/${staffId}/summary`)
+        fetch(`${API_BASE}/api/staff-payments/staff/${staffId}/summary`),
+        isMonthly ? fetch(`${API_BASE}/api/salary/staff/${staffId}/summary?days=30`) : Promise.resolve(null)
       ]);
-      const [attData, prodData, payData] = await Promise.all([attRes.json(), prodRes.json(), payRes.json()]);
+      const attData = await attRes.json();
+      const prodData = await prodRes.json();
+      const payData = await payRes.json();
+      const salData = salRes ? await salRes.json() : null;
       setStaffDetail({
         ...staffRecord,
         id: staffId,
         name: staffRecord.name || name,
         attendance: attData.status === 'ok' ? attData.summary : null,
         production: prodData.status === 'ok' ? prodData.summary : null,
-        payments: payData.status === 'ok' ? payData.summary : null
+        payments: payData.status === 'ok' ? payData.summary : null,
+        salary: salData && salData.status === 'ok' ? salData.salary : null
       });
     } catch (err) {
       console.error('বিস্তারিত তথ্য আনতে সমস্যা হয়েছে:', err);
@@ -251,12 +258,35 @@ export default function App() {
     return {};
   };
 
-  // একজন কারিগর এখন কত টাকা পাবে সেটা বের করে (আয় − দেওয়া টাকা)
-  const computeStaffDue = (s, paymentsMap) => {
+  const fetchSalarySummaryAll = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/salary/summary-all`);
+      const data = await res.json();
+      if (data.status === 'ok') {
+        const map = {};
+        for (const row of data.summary) map[row.staff_id] = row;
+        setSalarySummaryAll(map);
+        return map;
+      }
+    } catch (err) {
+      console.error('বেতন সামারি আনতে সমস্যা হয়েছে:', err);
+    }
+    return {};
+  };
+
+  // একজন কারিগর এখন কত টাকা পাবে সেটা বের করে
+  // মাসিক বেতনের কারিগর: শুক্রবার বেতনসহ ছুটি + উপস্থিত দিনের বেতন − লেট কাটা − অনুপস্থিত কাটা − দেওয়া টাকা
+  // প্রোডাকশনের কারিগর: মোট আয় − দেওয়া টাকা
+  const computeStaffDue = (s, paymentsMap, salaryMap) => {
     const paidMap = paymentsMap || paymentsSummaryAll;
-    const earned = s.rate_type === 'monthly'
-      ? parseFloat(s.rate_amount || 0)
-      : parseFloat(productionSummary[s.id]?.total_amount || 0);
+    const salMap = salaryMap || salarySummaryAll;
+    if (s.rate_type === 'monthly') {
+      if (salMap[s.id]) return parseFloat(salMap[s.id].total_due);
+      // সালারি সামারি এখনো লোড না হলে সাধারণ হিসাব (fallback)
+      const paid = parseFloat(paidMap[s.id]?.total_paid || 0);
+      return parseFloat(s.rate_amount || 0) - paid;
+    }
+    const earned = parseFloat(productionSummary[s.id]?.total_amount || 0);
     const paid = parseFloat(paidMap[s.id]?.total_paid || 0);
     return earned - paid;
   };
@@ -265,6 +295,7 @@ export default function App() {
     if (balanceHidden) {
       await fetchPaymentsSummaryAll();
       await fetchProductionSummaryAll();
+      await fetchSalarySummaryAll();
     }
     setBalanceHidden(!balanceHidden);
   };
@@ -272,23 +303,29 @@ export default function App() {
   const handleShowBalanceDetail = async () => {
     await fetchPaymentsSummaryAll();
     await fetchProductionSummaryAll();
+    await fetchSalarySummaryAll();
     setShowBalanceDetail(true);
   };
 
-  // কারিগরের ক্যাশ মেমো (রশিদ) — প্রোডাকশন এন্ট্রি + পেমেন্ট হিস্ট্রি একসাথে
+  // কারিগরের ক্যাশ মেমো (রশিদ) — প্রোডাকশন/বেতনের বিস্তারিত + পেমেন্ট হিস্ট্রি একসাথে
   const openCashMemo = async (staff) => {
     setCashMemoStaff(staff);
     setCashMemoLoading(true);
     setCashMemoData(null);
     try {
-      const [prodRes, payRes] = await Promise.all([
+      const isMonthly = staff.rate_type === 'monthly';
+      const [prodRes, payRes, salRes] = await Promise.all([
         fetch(`${API_BASE}/api/production/staff/${staff.id}`),
-        fetch(`${API_BASE}/api/staff-payments/staff/${staff.id}`)
+        fetch(`${API_BASE}/api/staff-payments/staff/${staff.id}`),
+        isMonthly ? fetch(`${API_BASE}/api/salary/staff/${staff.id}/summary?days=30`) : Promise.resolve(null)
       ]);
-      const [prodData, payData] = await Promise.all([prodRes.json(), payRes.json()]);
+      const prodData = await prodRes.json();
+      const payData = await payRes.json();
+      const salData = salRes ? await salRes.json() : null;
       setCashMemoData({
         production: prodData.status === 'ok' ? prodData.entries : [],
-        payments: payData.status === 'ok' ? payData.payments : []
+        payments: payData.status === 'ok' ? payData.payments : [],
+        salary: salData && salData.status === 'ok' ? salData.salary : null
       });
     } catch (err) {
       console.error('ক্যাশ মেমো আনতে সমস্যা হয়েছে:', err);
@@ -591,7 +628,7 @@ export default function App() {
               <p className="text-gray-800 font-medium">
                 {balanceHidden
                   ? 'দেখতে "ব্যালেন্স দেখুন" চাপুন'
-                  : `৳ ${staffList.reduce((sum, s) => sum + computeStaffDue(s, paymentsSummaryAll), 0).toFixed(2)}`}
+                  : `৳ ${staffList.reduce((sum, s) => sum + computeStaffDue(s, paymentsSummaryAll, salarySummaryAll), 0).toFixed(2)}`}
               </p>
             </div>
           </div>
@@ -1112,17 +1149,19 @@ export default function App() {
                         <p className="text-2xl font-bold text-gray-900">{staffDetail.payments?.payment_count || 0}</p>
                         <p className="text-xs text-gray-500 mt-0.5">মোট বার</p>
                       </button>
-                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-950 col-span-2">
+                      <button
+                        onClick={() => openCashMemo(staffDetail)}
+                        className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-950 active:opacity-80 col-span-2"
+                      >
                         <p className="text-2xl font-bold text-gray-900">
                           ৳ {(
-                            (staffDetail.rate_type === 'monthly'
-                              ? parseFloat(staffDetail.rate_amount || 0)
-                              : parseFloat(staffDetail.production?.total_amount || 0))
-                            - parseFloat(staffDetail.payments?.total_paid || 0)
+                            staffDetail.rate_type === 'monthly'
+                              ? parseFloat(staffDetail.salary?.total_due ?? (parseFloat(staffDetail.rate_amount || 0) - parseFloat(staffDetail.payments?.total_paid || 0)))
+                              : (parseFloat(staffDetail.production?.total_amount || 0) - parseFloat(staffDetail.payments?.total_paid || 0))
                           ).toFixed(2)}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">মোট পাওনা (আয় − দেওয়া টাকা)</p>
-                      </div>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট পাওনা — ক্যাশ মেমো দেখতে ক্লিক করুন</p>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1688,7 +1727,7 @@ export default function App() {
               ) : (
                 <div className="flex flex-col gap-3">
                   {staffList.map((s) => {
-                    const due = computeStaffDue(s, paymentsSummaryAll);
+                    const due = computeStaffDue(s, paymentsSummaryAll, salarySummaryAll);
                     return (
                       <button
                         key={s.id}
@@ -1750,6 +1789,36 @@ export default function App() {
                 </div>
               ) : cashMemoData ? (
                 <>
+                  {cashMemoStaff.rate_type === 'monthly' && cashMemoData.salary && (
+                    <div className="mb-4">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-2">দিন-ভিত্তিক হিসাব (দৈনিক রেট ৳{cashMemoData.salary.daily_rate})</p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-gray-500">
+                            <td className="py-1.5">তারিখ</td>
+                            <td className="py-1.5">অবস্থা</td>
+                            <td className="py-1.5 text-right">লেট (মিনিট)</td>
+                            <td className="py-1.5 text-right">টাকা</td>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cashMemoData.salary.breakdown.map((d, i) => (
+                            <tr key={i} className="border-b border-gray-100">
+                              <td className="py-1.5">{d.date}</td>
+                              <td className="py-1.5">
+                                {d.status === 'present' && 'উপস্থিত'}
+                                {d.status === 'absent' && 'অনুপস্থিত'}
+                                {d.status === 'holiday' && 'শুক্রবার (ছুটি)'}
+                              </td>
+                              <td className="py-1.5 text-right">{d.late_minutes || '—'}</td>
+                              <td className="py-1.5 text-right">৳{d.day_earned}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
                   {cashMemoStaff.rate_type !== 'monthly' && cashMemoData.production.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs font-bold text-gray-500 uppercase mb-2">প্রোডাকশন এন্ট্রি</p>
@@ -1804,7 +1873,7 @@ export default function App() {
                       <span className="text-gray-600">মোট আয়</span>
                       <span className="font-semibold text-gray-900">
                         ৳ {(cashMemoStaff.rate_type === 'monthly'
-                          ? parseFloat(cashMemoStaff.rate_amount || 0)
+                          ? (cashMemoData.salary ? cashMemoData.salary.total_salary_earned : parseFloat(cashMemoStaff.rate_amount || 0))
                           : cashMemoData.production.reduce((s, p) => s + parseFloat(p.amount), 0)
                         ).toFixed(2)}
                       </span>
@@ -1818,7 +1887,10 @@ export default function App() {
                     <div className="flex justify-between text-base pt-2 border-t border-gray-200 mt-2">
                       <span className="font-bold text-gray-900">এখন পাবে</span>
                       <span className="font-extrabold text-red-950">
-                        ৳ {computeStaffDue(cashMemoStaff, paymentsSummaryAll).toFixed(2)}
+                        ৳ {(cashMemoStaff.rate_type === 'monthly' && cashMemoData.salary
+                          ? cashMemoData.salary.total_due
+                          : computeStaffDue(cashMemoStaff, paymentsSummaryAll, salarySummaryAll)
+                        ).toFixed(2)}
                       </span>
                     </div>
                   </div>
