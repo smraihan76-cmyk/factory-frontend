@@ -85,6 +85,9 @@ export default function App() {
   // স্টাফের বিস্তারিত তথ্য (attendance + production + payments একসাথে)
   const [staffDetail, setStaffDetail] = useState(null); // { id, name, attendance, production, payments }
   const [staffDetailLoading, setStaffDetailLoading] = useState(false);
+  const [detailView, setDetailView] = useState(null); // 'attendance' | 'production' | 'payments' | null
+  const [detailList, setDetailList] = useState([]);
+  const [detailListLoading, setDetailListLoading] = useState(false);
 
   // ফান্ড/খরচ state
   const [showFundChoice, setShowFundChoice] = useState(false);
@@ -162,7 +165,10 @@ export default function App() {
 
   // স্টাফের নামে ক্লিক করলে এই ফাংশন attendance + production + payment তিনটাই একসাথে টেনে আনে
   const openStaffDetail = async (staffId, name) => {
-    setStaffDetail({ id: staffId, name, attendance: null, production: null, payments: null });
+    setDetailView(null);
+    setDetailList([]);
+    const staffRecord = staffList.find((x) => x.id === staffId) || { name };
+    setStaffDetail({ ...staffRecord, id: staffId, name: staffRecord.name || name, attendance: null, production: null, payments: null });
     setStaffDetailLoading(true);
     try {
       const [attRes, prodRes, payRes] = await Promise.all([
@@ -172,8 +178,9 @@ export default function App() {
       ]);
       const [attData, prodData, payData] = await Promise.all([attRes.json(), prodRes.json(), payRes.json()]);
       setStaffDetail({
+        ...staffRecord,
         id: staffId,
-        name,
+        name: staffRecord.name || name,
         attendance: attData.status === 'ok' ? attData.summary : null,
         production: prodData.status === 'ok' ? prodData.summary : null,
         payments: payData.status === 'ok' ? payData.summary : null
@@ -182,6 +189,28 @@ export default function App() {
       console.error('বিস্তারিত তথ্য আনতে সমস্যা হয়েছে:', err);
     } finally {
       setStaffDetailLoading(false);
+    }
+  };
+
+  // যেকোনো বক্সে ক্লিক করলে সেই ক্যাটাগরির বিস্তারিত লিস্ট টেনে আনে
+  const openDetailView = async (view) => {
+    setDetailView(view);
+    setDetailListLoading(true);
+    setDetailList([]);
+    try {
+      let url = '';
+      if (view === 'attendance') url = `${API_BASE}/api/attendance/daily/${staffDetail.id}?days=30`;
+      if (view === 'production') url = `${API_BASE}/api/production/staff/${staffDetail.id}`;
+      if (view === 'payments') url = `${API_BASE}/api/staff-payments/staff/${staffDetail.id}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setDetailList(data.days || data.entries || data.payments || []);
+      }
+    } catch (err) {
+      console.error('বিস্তারিত লিস্ট আনতে সমস্যা হয়েছে:', err);
+    } finally {
+      setDetailListLoading(false);
     }
   };
 
@@ -956,26 +985,26 @@ export default function App() {
                     <h3 className="text-sm font-bold text-gray-700 mb-3">গত ৩০ দিনের উপস্থিতি</h3>
                     {staffDetail.attendance ? (
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500">
+                        <button onClick={() => openDetailView('attendance')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500 active:opacity-80">
                           <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.present_days}</p>
                           <p className="text-xs text-gray-500 mt-0.5">উপস্থিত দিন</p>
-                        </div>
-                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-500">
+                        </button>
+                        <button onClick={() => openDetailView('attendance')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-500 active:opacity-80">
                           <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.absent_days}</p>
                           <p className="text-xs text-gray-500 mt-0.5">অনুপস্থিত দিন</p>
-                        </div>
-                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
+                        </button>
+                        <button onClick={() => openDetailView('attendance')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900 active:opacity-80">
                           <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.present_hours}</p>
                           <p className="text-xs text-gray-500 mt-0.5">উপস্থিত ঘণ্টা</p>
-                        </div>
-                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500">
+                        </button>
+                        <button onClick={() => openDetailView('attendance')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500 active:opacity-80">
                           <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.break_hours}</p>
                           <p className="text-xs text-gray-500 mt-0.5">ব্রেক ঘণ্টা</p>
-                        </div>
-                        <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-orange-500 col-span-2">
+                        </button>
+                        <button onClick={() => openDetailView('attendance')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-orange-500 active:opacity-80 col-span-2">
                           <p className="text-2xl font-bold text-gray-900">{staffDetail.attendance.late_hours}</p>
                           <p className="text-xs text-gray-500 mt-0.5">মোট লেট (ঘণ্টা)</p>
-                        </div>
+                        </button>
                       </div>
                     ) : (
                       <p className="text-sm text-gray-500">ডেটা পাওয়া যায়নি</p>
@@ -986,31 +1015,110 @@ export default function App() {
                   <div>
                     <h3 className="text-sm font-bold text-gray-700 mb-3">প্রোডাকশন হিসাব</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500">
+                      <button onClick={() => openDetailView('production')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-amber-500 active:opacity-80">
                         <p className="text-2xl font-bold text-gray-900">{staffDetail.production?.total_quantity || 0}</p>
                         <p className="text-xs text-gray-500 mt-0.5">মোট পিস</p>
-                      </div>
-                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
+                      </button>
+                      <button onClick={() => openDetailView('production')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900 active:opacity-80">
                         <p className="text-2xl font-bold text-gray-900">৳ {staffDetail.production?.total_amount || 0}</p>
                         <p className="text-xs text-gray-500 mt-0.5">মোট আয়</p>
-                      </div>
+                      </button>
                     </div>
                   </div>
 
-                  {/* পেমেন্ট */}
+                  {/* পেমেন্ট + পাওনা */}
                   <div>
                     <h3 className="text-sm font-bold text-gray-700 mb-3">সাপ্তাহিক পেমেন্ট হিসাব</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500">
+                      <button onClick={() => openDetailView('payments')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-emerald-500 active:opacity-80">
                         <p className="text-2xl font-bold text-gray-900">৳ {staffDetail.payments?.total_paid || 0}</p>
                         <p className="text-xs text-gray-500 mt-0.5">মোট দেওয়া হয়েছে</p>
-                      </div>
-                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-gray-300">
+                      </button>
+                      <button onClick={() => openDetailView('payments')} className="text-left bg-white rounded-2xl shadow-md p-4 border-l-4 border-gray-300 active:opacity-80">
                         <p className="text-2xl font-bold text-gray-900">{staffDetail.payments?.payment_count || 0}</p>
                         <p className="text-xs text-gray-500 mt-0.5">মোট বার</p>
+                      </button>
+                      <div className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-950 col-span-2">
+                        <p className="text-2xl font-bold text-gray-900">
+                          ৳ {(
+                            (staffDetail.rate_type === 'monthly'
+                              ? parseFloat(staffDetail.rate_amount || 0)
+                              : parseFloat(staffDetail.production?.total_amount || 0))
+                            - parseFloat(staffDetail.payments?.total_paid || 0)
+                          ).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">মোট পাওনা (আয় − দেওয়া টাকা)</p>
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* বিস্তারিত ড্রিল-ডাউন লিস্ট (attendance/production/payments) */}
+        {staffDetail && detailView && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">
+                  {detailView === 'attendance' && 'উপস্থিতির বিস্তারিত'}
+                  {detailView === 'production' && 'প্রোডাকশনের বিস্তারিত'}
+                  {detailView === 'payments' && 'পেমেন্টের বিস্তারিত'}
+                </h2>
+                <button onClick={() => setDetailView(null)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              {detailListLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 size={28} className="animate-spin text-red-900" />
+                </div>
+              ) : detailList.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">কোনো তথ্য পাওয়া যায়নি</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {detailView === 'attendance' && detailList.map((d, i) => (
+                    <div key={i} className={`bg-white rounded-2xl shadow-md p-4 border-l-4 ${d.status === 'present' ? 'border-emerald-500' : 'border-red-500'}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-gray-900 text-sm">{d.date}</p>
+                        {d.status === 'absent' ? (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-50 text-red-700">অনুপস্থিত</span>
+                        ) : (
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">উপস্থিত</span>
+                        )}
+                      </div>
+                      {d.status === 'present' && (
+                        <div className="mt-2 text-xs text-gray-500 space-y-0.5">
+                          <p>ঢুকেছে: {d.check_in ? new Date(d.check_in).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+                          <p>বের হয়েছে: {d.check_out ? new Date(d.check_out).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+                          {d.break_start && (
+                            <p>ব্রেক: {new Date(d.break_start).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })} - {d.break_end ? new Date(d.break_end).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' }) : '—'}</p>
+                          )}
+                          {d.late_minutes > 0 && <p className="text-orange-600 font-medium">লেট: {d.late_minutes} মিনিট</p>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {detailView === 'production' && detailList.map((p) => (
+                    <div key={p.id} className="bg-white rounded-2xl shadow-md p-4 flex items-center justify-between border-l-4 border-amber-500">
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">{p.product_name}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{p.entry_date?.slice(0, 10)} · {p.quantity} পিস</p>
+                      </div>
+                      <p className="text-sm font-semibold text-red-900">৳ {p.amount}</p>
+                    </div>
+                  ))}
+
+                  {detailView === 'payments' && detailList.map((pay) => (
+                    <div key={pay.id} className="bg-white rounded-2xl shadow-md p-4 flex items-center justify-between border-l-4 border-emerald-500">
+                      <p className="text-xs text-gray-500">{pay.payment_date?.slice(0, 10)}</p>
+                      <p className="text-sm font-semibold text-red-900">৳ {pay.amount}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
