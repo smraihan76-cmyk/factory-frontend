@@ -17,6 +17,7 @@ export default function App() {
     name: '',
     phone: '',
     designation: '',
+    joining_date: '',
     rate_type: 'piece',
     rate_amount: ''
   });
@@ -54,7 +55,7 @@ export default function App() {
       const data = await res.json();
       if (data.status === 'ok') {
         setShowAddForm(false);
-        setForm({ name: '', phone: '', designation: '', rate_type: 'piece', rate_amount: '' });
+        setForm({ name: '', phone: '', designation: '', joining_date: '', rate_type: 'piece', rate_amount: '' });
         fetchStaff();
       } else {
         setFormError(data.message || 'কিছু একটা ভুল হয়েছে');
@@ -180,9 +181,13 @@ export default function App() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
+                    {s.rate_type === 'monthly' ? (
+                      <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
+                    ) : (
+                      <p className="text-sm font-semibold text-gray-400">—</p>
+                    )}
                     <p className="text-xs text-gray-400">
-                      {s.rate_type === 'piece' ? 'প্রতি পিস' : 'মাসিক'}
+                      {s.rate_type === 'monthly' ? 'মাসিক' : 'প্রোডাকশন'}
                     </p>
                   </div>
                 </div>
@@ -259,6 +264,16 @@ export default function App() {
                 </div>
 
                 <div>
+                  <label className="text-xs font-semibold text-gray-500">যোগদানের তারিখ</label>
+                  <input
+                    type="date"
+                    value={form.joining_date}
+                    onChange={(e) => setForm({ ...form, joining_date: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                  />
+                </div>
+
+                <div>
                   <label className="text-xs font-semibold text-gray-500">রেটের ধরন</label>
                   <div className="flex gap-3 mt-1">
                     <button
@@ -266,7 +281,7 @@ export default function App() {
                       onClick={() => setForm({ ...form, rate_type: 'piece' })}
                       className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border ${form.rate_type === 'piece' ? 'bg-red-950 text-white border-red-950' : 'border-gray-200 text-gray-600'}`}
                     >
-                      প্রতি পিস
+                      প্রোডাকশন
                     </button>
                     <button
                       type="button"
@@ -278,18 +293,18 @@ export default function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-gray-500">
-                    {form.rate_type === 'piece' ? 'প্রতি পিস রেট (৳)' : 'মাসিক বেতন (৳)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={form.rate_amount}
-                    onChange={(e) => setForm({ ...form, rate_amount: e.target.value })}
-                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
-                    placeholder="যেমন: ৩৫"
-                  />
-                </div>
+                {form.rate_type === 'monthly' && (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500">মাসিক বেতন (৳)</label>
+                    <input
+                      type="number"
+                      value={form.rate_amount}
+                      onChange={(e) => setForm({ ...form, rate_amount: e.target.value })}
+                      className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                      placeholder="যেমন: ৮০০০"
+                    />
+                  </div>
+                )}
 
                 {formError && (
                   <p className="text-sm text-red-600">{formError}</p>
