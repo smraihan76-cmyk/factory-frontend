@@ -2,15 +2,26 @@ import React, { useState, useEffect } from 'react';
 import {
   Bell, PlusCircle, MapPin, HardHat, Wallet,
   RefreshCw, CheckCircle2, CreditCard, UserPlus, X, Loader2,
-  LifeBuoy, ChevronRight, Home, Package, User, Users, Eye, FileText
+  LifeBuoy, ChevronRight, Home, Package, User, Users, Eye, FileText,
+  Phone, MessageCircle
 } from 'lucide-react';
 
 const API_BASE = 'https://factory-backend-production-7cde.up.railway.app';
+
+// বাংলাদেশি নাম্বারকে হোয়াটসঅ্যাপ লিংকের জন্য প্রস্তুত করে (880 কোডসহ)
+function toWhatsAppNumber(phone) {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('880')) return digits;
+  if (digits.startsWith('0')) return '88' + digits;
+  return '880' + digits;
+}
 
 export default function App() {
   const [balanceHidden, setBalanceHidden] = useState(true);
   const [staffList, setStaffList] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
@@ -68,9 +79,9 @@ export default function App() {
   };
 
   const stats = [
-    { icon: <User size={22} className="text-amber-600" />, bg: 'bg-amber-50', dot: 'bg-amber-500', value: `${staffList.length}`, label: 'মোট এমপ্লয়ি' },
-    { icon: <CheckCircle2 size={22} className="text-emerald-700" />, bg: 'bg-emerald-50', dot: 'bg-emerald-600', value: '০', label: 'মোট উপস্থিত' },
-    { icon: <MapPin size={22} className="text-orange-700" />, bg: 'bg-orange-50', dot: 'bg-orange-600', value: '০', label: 'মোট অনুপস্থিত' },
+    { icon: <User size={22} className="text-amber-600" />, bg: 'bg-amber-50', dot: 'bg-amber-500', value: `${staffList.length}`, label: 'মোট এমপ্লয়ি', onClick: () => setShowEmployeeModal(true) },
+    { icon: <CheckCircle2 size={22} className="text-emerald-700" />, bg: 'bg-emerald-50', dot: 'bg-emerald-600', value: '০', label: 'মোট উপস্থিত', onClick: () => {} },
+    { icon: <MapPin size={22} className="text-orange-700" />, bg: 'bg-orange-50', dot: 'bg-orange-600', value: '০', label: 'মোট অনুপস্থিত', onClick: () => {} },
   ];
 
   const quickActions = [
@@ -139,7 +150,7 @@ export default function App() {
         {/* Stat cards */}
         <div className="flex gap-3 px-4 mt-4">
           {stats.map((s, i) => (
-            <div key={i} className="flex-1 bg-white rounded-2xl p-3.5 shadow-sm">
+            <div key={i} onClick={s.onClick} className="flex-1 bg-white rounded-2xl p-3.5 shadow-sm active:opacity-80 cursor-pointer">
               <div className="flex items-start justify-between">
                 <div className={`w-9 h-9 rounded-lg ${s.bg} flex items-center justify-center`}>
                   {s.icon}
@@ -173,14 +184,31 @@ export default function App() {
             <h2 className="text-lg font-bold text-gray-900 mb-3">স্টাফ/কারিগর লিস্ট</h2>
             <div className="bg-white rounded-2xl shadow-sm divide-y divide-gray-100">
               {staffList.map((s) => (
-                <div key={s.id} className="p-4 flex items-center justify-between">
-                  <div>
+                <div key={s.id} className="p-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {s.designation || 'পদবি নেই'} {s.phone ? `· ${s.phone}` : ''}
-                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
+                    {s.phone && (
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs text-gray-600">{s.phone}</span>
+                        <a
+                          href={`tel:${s.phone}`}
+                          className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center active:bg-emerald-200"
+                        >
+                          <Phone size={13} className="text-emerald-700" />
+                        </a>
+                        <a
+                          href={`https://wa.me/${toWhatsAppNumber(s.phone)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center active:bg-green-200"
+                        >
+                          <MessageCircle size={13} className="text-green-700" />
+                        </a>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     {s.rate_type === 'monthly' ? (
                       <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
                     ) : (
@@ -217,6 +245,64 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        {/* Employee List Modal */}
+        {showEmployeeModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">মোট এমপ্লয়ি ({staffList.length})</h2>
+                <button onClick={() => setShowEmployeeModal(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              {staffList.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো স্টাফ যোগ করা হয়নি</p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {staffList.map((s) => (
+                    <div key={s.id} className="py-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
+                        {s.phone && (
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span className="text-xs text-gray-600">{s.phone}</span>
+                            <a
+                              href={`tel:${s.phone}`}
+                              className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center active:bg-emerald-200"
+                            >
+                              <Phone size={13} className="text-emerald-700" />
+                            </a>
+                            <a
+                              href={`https://wa.me/${toWhatsAppNumber(s.phone)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center active:bg-green-200"
+                            >
+                              <MessageCircle size={13} className="text-green-700" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        {s.rate_type === 'monthly' ? (
+                          <p className="text-sm font-semibold text-red-900">৳ {s.rate_amount}</p>
+                        ) : (
+                          <p className="text-sm font-semibold text-gray-400">—</p>
+                        )}
+                        <p className="text-xs text-gray-400">
+                          {s.rate_type === 'monthly' ? 'মাসিক' : 'প্রোডাকশন'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Add Staff Modal */}
         {showAddForm && (
