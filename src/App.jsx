@@ -43,7 +43,8 @@ export default function App() {
     designation: '',
     joining_date: '',
     rate_type: 'piece',
-    rate_amount: ''
+    rate_amount: '',
+    machine_user_id: ''
   });
 
   // উপস্থিতি সংক্রান্ত state
@@ -66,6 +67,13 @@ export default function App() {
   const [machineForm, setMachineForm] = useState({ name: '', ip_address: '', port: '4370' });
   const [machineSubmitting, setMachineSubmitting] = useState(false);
   const [machineError, setMachineError] = useState('');
+
+  // প্রোডাক্ট state
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [productForm, setProductForm] = useState({ name: '', sewing_price: '' });
+  const [productSubmitting, setProductSubmitting] = useState(false);
+  const [productError, setProductError] = useState('');
 
   const fetchStaff = async () => {
     try {
@@ -218,6 +226,44 @@ export default function App() {
     }
   };
 
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/products`);
+      const data = await res.json();
+      if (data.status === 'ok') setProducts(data.products);
+    } catch (err) {
+      console.error('প্রোডাক্ট লিস্ট আনতে সমস্যা হয়েছে:', err);
+    }
+  };
+
+  const handleAddProduct = async (e) => {
+    e.preventDefault();
+    setProductError('');
+    if (!productForm.name.trim()) {
+      setProductError('প্রোডাক্টের নাম দিতে হবে');
+      return;
+    }
+    setProductSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: productForm.name, sewing_price: parseFloat(productForm.sewing_price) || 0 })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setProductForm({ name: '', sewing_price: '' });
+        fetchProducts();
+      } else {
+        setProductError(data.message || 'কিছু একটা ভুল হয়েছে');
+      }
+    } catch (err) {
+      setProductError('সার্ভারের সাথে কানেক্ট করা যায়নি');
+    } finally {
+      setProductSubmitting(false);
+    }
+  };
+
   const handleAddStaff = async (e) => {
     e.preventDefault();
     setFormError('');
@@ -235,7 +281,7 @@ export default function App() {
       const data = await res.json();
       if (data.status === 'ok') {
         setShowAddForm(false);
-        setForm({ name: '', phone: '', designation: '', joining_date: '', rate_type: 'piece', rate_amount: '' });
+        setForm({ name: '', phone: '', designation: '', joining_date: '', rate_type: 'piece', rate_amount: '', machine_user_id: '' });
         fetchStaff();
       } else {
         setFormError(data.message || 'কিছু একটা ভুল হয়েছে');
@@ -257,7 +303,7 @@ export default function App() {
   ];
 
   const quickActions = [
-    { icon: <PlusCircle size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'নতুন প্রোডাক্ট যোগ করুন', onClick: () => {} },
+    { icon: <PlusCircle size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'নতুন প্রোডাক্ট যোগ করুন', onClick: () => { setShowProductForm(true); fetchProducts(); } },
     { icon: <HardHat size={24} className="text-amber-700" />, bg: 'bg-amber-100', label: 'নতুন কারিগর যোগ করুন', onClick: () => setShowAddForm(true) },
     { icon: <Users size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'কারিগর হিসাব', onClick: () => {} },
     { icon: <Server size={24} className="text-red-800" />, bg: 'bg-red-100', label: 'মেশিন যোগ করুন', onClick: () => { setShowMachineForm(true); fetchMachines(); } },
@@ -539,6 +585,20 @@ export default function App() {
                     onChange={(e) => setForm({ ...form, joining_date: e.target.value })}
                     className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
                   />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">মেশিন ইউজার আইডি (ফিঙ্গারপ্রিন্ট)</label>
+                  <input
+                    type="text"
+                    value={form.machine_user_id}
+                    onChange={(e) => setForm({ ...form, machine_user_id: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                    placeholder="যেমন: 3"
+                  />
+                  <p className="text-xs text-gray-400 mt-1 leading-snug">
+                    প্রথমে মেশিনে গিয়ে এই কারিগরের আঙুলের ছাপ রেকর্ড করুন (User Management থেকে), তারপর মেশিন যে নাম্বারটা দেয় সেটা এখানে বসান। না দিলে ফিঙ্গারপ্রিন্ট দিয়ে উপস্থিতি গণনা হবে না, শুধু ম্যানুয়ালি করতে হবে।
+                  </p>
                 </div>
 
                 <div>
@@ -887,6 +947,68 @@ export default function App() {
                       <div key={m.id} className="bg-white rounded-2xl shadow-md p-4 border-l-4 border-red-900">
                         <p className="font-semibold text-gray-900 text-sm">{m.name}</p>
                         <p className="text-xs text-gray-500 mt-0.5">{m.ip_address}:{m.port}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Product Form */}
+        {showProductForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">নতুন প্রোডাক্ট যোগ করুন</h2>
+                <button onClick={() => setShowProductForm(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddProduct} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">প্রোডাক্টের নাম *</label>
+                  <input
+                    type="text"
+                    value={productForm.name}
+                    onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                    placeholder="যেমন: শার্ট, প্যান্ট"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-500">সেলাই মূল্য (৳ প্রতি পিস)</label>
+                  <input
+                    type="number"
+                    value={productForm.sewing_price}
+                    onChange={(e) => setProductForm({ ...productForm, sewing_price: e.target.value })}
+                    className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-900"
+                    placeholder="যেমন: ৩৫"
+                  />
+                </div>
+
+                {productError && <p className="text-sm text-red-600">{productError}</p>}
+
+                <button
+                  type="submit"
+                  disabled={productSubmitting}
+                  className="w-full bg-red-950 text-white rounded-full py-3 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900 disabled:opacity-60"
+                >
+                  {productSubmitting ? <Loader2 size={18} className="animate-spin" /> : <PlusCircle size={18} />}
+                  {productSubmitting ? 'সেভ হচ্ছে...' : 'সেভ করুন'}
+                </button>
+              </form>
+
+              {products.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3">প্রোডাক্ট লিস্ট</h3>
+                  <div className="flex flex-col gap-3">
+                    {products.map((p) => (
+                      <div key={p.id} className="bg-white rounded-2xl shadow-md p-4 flex items-center justify-between border-l-4 border-amber-500">
+                        <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
+                        <p className="text-sm font-semibold text-red-900">৳ {p.sewing_price}</p>
                       </div>
                     ))}
                   </div>
