@@ -3,7 +3,7 @@ import {
   Bell, PlusCircle, MapPin, HardHat, Wallet,
   RefreshCw, CheckCircle2, CreditCard, UserPlus, X, Loader2,
   LifeBuoy, ChevronRight, Home, Package, User, Users, Eye, FileText,
-  Phone, MessageCircle, Clock, Server, Coffee, LogIn, LogOut
+  Phone, MessageCircle, Clock, Server, Coffee, LogIn, LogOut, Printer
 } from 'lucide-react';
 
 const API_BASE = 'https://factory-backend-production-7cde.up.railway.app';
@@ -102,6 +102,13 @@ export default function App() {
   const [weeklyAmount, setWeeklyAmount] = useState('');
   const [weeklySubmitting, setWeeklySubmitting] = useState(false);
   const [weeklyError, setWeeklyError] = useState('');
+
+  // মোট ব্যালেন্স / বিস্তারিত / ক্যাশ মেমো state
+  const [paymentsSummaryAll, setPaymentsSummaryAll] = useState({}); // { staffId: {total_paid} }
+  const [showBalanceDetail, setShowBalanceDetail] = useState(false);
+  const [cashMemoStaff, setCashMemoStaff] = useState(null);
+  const [cashMemoData, setCashMemoData] = useState(null); // { production: [], payments: [] }
+  const [cashMemoLoading, setCashMemoLoading] = useState(false);
 
   const fetchStaff = async () => {
     try {
@@ -225,6 +232,68 @@ export default function App() {
       }
     } catch (err) {
       console.error('প্রোডাকশন সামারি আনতে সমস্যা হয়েছে:', err);
+    }
+  };
+
+  const fetchPaymentsSummaryAll = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/staff-payments/summary-all`);
+      const data = await res.json();
+      if (data.status === 'ok') {
+        const map = {};
+        for (const row of data.summary) map[row.staff_id] = row;
+        setPaymentsSummaryAll(map);
+        return map;
+      }
+    } catch (err) {
+      console.error('পেমেন্ট সামারি আনতে সমস্যা হয়েছে:', err);
+    }
+    return {};
+  };
+
+  // একজন কারিগর এখন কত টাকা পাবে সেটা বের করে (আয় − দেওয়া টাকা)
+  const computeStaffDue = (s, paymentsMap) => {
+    const paidMap = paymentsMap || paymentsSummaryAll;
+    const earned = s.rate_type === 'monthly'
+      ? parseFloat(s.rate_amount || 0)
+      : parseFloat(productionSummary[s.id]?.total_amount || 0);
+    const paid = parseFloat(paidMap[s.id]?.total_paid || 0);
+    return earned - paid;
+  };
+
+  const handleShowBalance = async () => {
+    if (balanceHidden) {
+      await fetchPaymentsSummaryAll();
+      await fetchProductionSummaryAll();
+    }
+    setBalanceHidden(!balanceHidden);
+  };
+
+  const handleShowBalanceDetail = async () => {
+    await fetchPaymentsSummaryAll();
+    await fetchProductionSummaryAll();
+    setShowBalanceDetail(true);
+  };
+
+  // কারিগরের ক্যাশ মেমো (রশিদ) — প্রোডাকশন এন্ট্রি + পেমেন্ট হিস্ট্রি একসাথে
+  const openCashMemo = async (staff) => {
+    setCashMemoStaff(staff);
+    setCashMemoLoading(true);
+    setCashMemoData(null);
+    try {
+      const [prodRes, payRes] = await Promise.all([
+        fetch(`${API_BASE}/api/production/staff/${staff.id}`),
+        fetch(`${API_BASE}/api/staff-payments/staff/${staff.id}`)
+      ]);
+      const [prodData, payData] = await Promise.all([prodRes.json(), payRes.json()]);
+      setCashMemoData({
+        production: prodData.status === 'ok' ? prodData.entries : [],
+        payments: payData.status === 'ok' ? payData.payments : []
+      });
+    } catch (err) {
+      console.error('ক্যাশ মেমো আনতে সমস্যা হয়েছে:', err);
+    } finally {
+      setCashMemoLoading(false);
     }
   };
 
@@ -494,7 +563,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center">
-      <div className="w-full max-w-sm bg-stone-100 min-h-screen relative pb-20">
+      <div className={`w-full max-w-sm bg-stone-100 min-h-screen relative pb-20 ${cashMemoStaff ? 'print:hidden' : ''}`}>
 
         {/* Header */}
         <div className="bg-gradient-to-br from-red-950 to-black rounded-b-3xl px-6 pt-8 pb-14 text-white">
@@ -518,20 +587,25 @@ export default function App() {
               <Wallet size={22} className="text-amber-600" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-gray-400 tracking-wide">আজকের হিসাব</p>
+              <p className="text-xs font-semibold text-gray-400 tracking-wide">মোট ব্যালেন্স (কারিগরদের পাওনা)</p>
               <p className="text-gray-800 font-medium">
-                {balanceHidden ? 'দেখতে "ব্যালেন্স দেখুন" চাপুন' : '৳ ৯৮,৫০০ মোট আয়'}
+                {balanceHidden
+                  ? 'দেখতে "ব্যালেন্স দেখুন" চাপুন'
+                  : `৳ ${staffList.reduce((sum, s) => sum + computeStaffDue(s, paymentsSummaryAll), 0).toFixed(2)}`}
               </p>
             </div>
           </div>
           <div className="flex gap-3 mt-4">
             <button
-              onClick={() => setBalanceHidden(!balanceHidden)}
+              onClick={handleShowBalance}
               className="flex-1 border border-red-950 text-red-950 rounded-full py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-50"
             >
               <Eye size={16} /> ব্যালেন্স দেখুন
             </button>
-            <button className="flex-1 bg-red-950 text-white rounded-full py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900">
+            <button
+              onClick={handleShowBalanceDetail}
+              className="flex-1 bg-red-950 text-white rounded-full py-2.5 flex items-center justify-center gap-2 font-semibold text-sm active:bg-red-900"
+            >
               <FileText size={16} /> বিস্তারিত দেখুন
             </button>
           </div>
@@ -1594,6 +1668,166 @@ export default function App() {
                 {weeklySubmitting ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
                 {weeklySubmitting ? 'সেভ হচ্ছে...' : 'সেভ করুন'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* মোট ব্যালেন্স — বিস্তারিত (কে কত পাবে) */}
+        {showBalanceDetail && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 print:hidden">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-gray-900">কে কত পাবে</h2>
+                <button onClick={() => setShowBalanceDetail(false)} className="text-gray-400">
+                  <X size={22} />
+                </button>
+              </div>
+
+              {staffList.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো স্টাফ যোগ করা হয়নি</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {staffList.map((s) => {
+                    const due = computeStaffDue(s, paymentsSummaryAll);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => openCashMemo(s)}
+                        className={`text-left bg-white rounded-2xl shadow-md p-4 flex items-center justify-between gap-3 border-l-4 ${
+                          s.rate_type === 'monthly' ? 'border-red-900' : 'border-amber-500'
+                        } active:opacity-80`}
+                      >
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{s.name}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{s.designation || 'পদবি নেই'}</p>
+                        </div>
+                        <p className={`text-sm font-semibold ${due > 0 ? 'text-red-900' : 'text-emerald-700'}`}>
+                          ৳ {due.toFixed(2)}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ক্যাশ মেমো / রিসিট — প্রিন্ট করা যাবে */}
+        {cashMemoStaff && (
+          <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 print:bg-white print:static print:block">
+            <div className="w-full max-w-sm bg-white rounded-t-3xl print:rounded-none p-6 max-h-[85vh] print:max-h-none overflow-y-auto print:overflow-visible">
+              <div className="flex items-center justify-between mb-4 print:hidden">
+                <h2 className="text-lg font-bold text-gray-900">ক্যাশ মেমো</h2>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => window.print()}
+                    className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center"
+                  >
+                    <Printer size={16} className="text-red-800" />
+                  </button>
+                  <button onClick={() => { setCashMemoStaff(null); setCashMemoData(null); }} className="text-gray-400">
+                    <X size={22} />
+                  </button>
+                </div>
+              </div>
+
+              {/* মেমো হেডার */}
+              <div className="text-center border-b-2 border-dashed border-gray-300 pb-4 mb-4">
+                <h1 className="text-xl font-extrabold text-red-950 tracking-wide">Maya Garments</h1>
+                <p className="text-xs text-gray-500 mt-0.5">কারিগর হিসাব — ক্যাশ মেমো</p>
+                <p className="text-xs text-gray-400 mt-1">তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
+              </div>
+
+              <div className="mb-4">
+                <p className="font-semibold text-gray-900">{cashMemoStaff.name}</p>
+                <p className="text-xs text-gray-500">{cashMemoStaff.designation || 'পদবি নেই'} {cashMemoStaff.phone ? `· ${cashMemoStaff.phone}` : ''}</p>
+              </div>
+
+              {cashMemoLoading ? (
+                <div className="flex justify-center py-10 print:hidden">
+                  <Loader2 size={28} className="animate-spin text-red-900" />
+                </div>
+              ) : cashMemoData ? (
+                <>
+                  {cashMemoStaff.rate_type !== 'monthly' && cashMemoData.production.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-2">প্রোডাকশন এন্ট্রি</p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-gray-500">
+                            <td className="py-1.5">তারিখ</td>
+                            <td className="py-1.5">প্রোডাক্ট</td>
+                            <td className="py-1.5 text-right">পিস</td>
+                            <td className="py-1.5 text-right">টাকা</td>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cashMemoData.production.map((p) => (
+                            <tr key={p.id} className="border-b border-gray-100">
+                              <td className="py-1.5">{p.entry_date?.slice(0, 10)}</td>
+                              <td className="py-1.5">{p.product_name}</td>
+                              <td className="py-1.5 text-right">{p.quantity}</td>
+                              <td className="py-1.5 text-right">৳{p.amount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {cashMemoData.payments.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-bold text-gray-500 uppercase mb-2">টাকা নেওয়ার হিস্ট্রি</p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-gray-500">
+                            <td className="py-1.5">তারিখ</td>
+                            <td className="py-1.5 text-right">টাকা</td>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cashMemoData.payments.map((pay) => (
+                            <tr key={pay.id} className="border-b border-gray-100">
+                              <td className="py-1.5">{pay.payment_date?.slice(0, 10)}</td>
+                              <td className="py-1.5 text-right">৳{pay.amount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* টোটাল */}
+                  <div className="border-t-2 border-dashed border-gray-300 pt-4 space-y-1.5">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">মোট আয়</span>
+                      <span className="font-semibold text-gray-900">
+                        ৳ {(cashMemoStaff.rate_type === 'monthly'
+                          ? parseFloat(cashMemoStaff.rate_amount || 0)
+                          : cashMemoData.production.reduce((s, p) => s + parseFloat(p.amount), 0)
+                        ).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">মোট নিয়েছে</span>
+                      <span className="font-semibold text-gray-900">
+                        ৳ {cashMemoData.payments.reduce((s, p) => s + parseFloat(p.amount), 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-base pt-2 border-t border-gray-200 mt-2">
+                      <span className="font-bold text-gray-900">এখন পাবে</span>
+                      <span className="font-extrabold text-red-950">
+                        ৳ {computeStaffDue(cashMemoStaff, paymentsSummaryAll).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-center text-xs text-gray-400 mt-6 print:mt-10">— ধন্যবাদ —</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-8">ডেটা পাওয়া যায়নি</p>
+              )}
             </div>
           </div>
         )}
