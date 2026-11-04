@@ -1,3 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Noto Sans Bengali', system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
 
 /* Quick actions সাজানোর মোড — দুলুনি; লম্বা চাপে মেনু ও টেক্সট সিলেকশন বন্ধ */
 .qa-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
