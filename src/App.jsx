@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import QuickActionsGrid from './QuickActionsGrid.jsx';
 import {
   Bell, PlusCircle, MapPin, HardHat, Wallet,
   RefreshCw, CheckCircle2, CreditCard, UserPlus, X, Loader2,
@@ -299,12 +300,15 @@ const buildCashMemoPDFConfig = (staff, memoData) => {
     sections.push({
       heading: `দিন-ভিত্তিক হিসাব (দৈনিক রেট ৳${memoData.salary.daily_rate})`,
       columns: ['তারিখ', 'অবস্থা', 'লেট (মিনিট)', 'টাকা'],
-      rows: memoData.salary.breakdown.map((d) => [
-        d.date,
-        d.status === 'present' ? 'উপস্থিত' : d.status === 'absent' ? 'অনুপস্থিত' : 'শুক্রবার (ছুটি)',
-        d.late_minutes || '—',
-        `৳${d.day_earned}`
-      ])
+      rows: memoData.salary.breakdown.flatMap((d) => {
+        const row = [
+          d.date,
+          (d.status === 'present' ? 'উপস্থিত' : d.status === 'absent' ? 'অনুপস্থিত' : 'শুক্রবার (ছুটি)') + (d.manual_absent_deduction > 0 ? ' (উপস্থিত ছিলেন, পরে অনুপস্থিত দেখানো)' : ''),
+          d.late_minutes || '—',
+          d.manual_absent_deduction > 0 ? `−৳${d.manual_absent_deduction}` : `৳${d.day_earned}`
+        ];
+        return d.manual_absent_deduction > 0 ? [['----------', '----------------', '-----', '-------'], row] : [row];
+      })
     });
     if (memoData.salary.overtime?.length > 0) {
       sections.push({
@@ -770,17 +774,28 @@ function EmployeeView({ currentUser, onLogout }) {
                     </thead>
                     <tbody>
                       {cashMemoData.salary.breakdown.map((d, i) => (
-                        <tr key={i} className="border-b border-gray-100">
-                          <td className="py-1.5">{d.date}</td>
-                          <td className="py-1.5">
-                            {d.status === 'present' && 'উপস্থিত'}
-                            {d.status === 'absent' && 'অনুপস্থিত'}
-                            {d.status === 'holiday' && 'শুক্রবার (ছুটি)'}
-                            {d.status === 'offline' && 'অফলাইন'}
-                          </td>
-                          <td className="py-1.5 text-right">{d.late_minutes || '—'}</td>
-                          <td className="py-1.5 text-right">৳{d.day_earned}</td>
-                        </tr>
+                        <React.Fragment key={i}>
+                          {d.manual_absent_deduction > 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-0 text-red-500 text-[10px] leading-none overflow-hidden whitespace-nowrap">------------------------------------------------</td>
+                            </tr>
+                          )}
+                          <tr className="border-b border-gray-100">
+                            <td className="py-1.5">{d.date}</td>
+                            <td className="py-1.5">
+                              {d.status === 'present' && 'উপস্থিত'}
+                              {d.status === 'absent' && 'অনুপস্থিত'}
+                              {d.status === 'holiday' && 'শুক্রবার (ছুটি)'}
+                              {d.status === 'offline' && 'অফলাইন'}
+                              {d.manual_absent_deduction > 0 && <span className="block text-[10px] text-red-500">উপস্থিত ছিলেন, পরে অনুপস্থিত দেখানো হয়েছে</span>}
+                            </td>
+                            <td className="py-1.5 text-right">{d.late_minutes || '—'}</td>
+                            <td className="py-1.5 text-right">
+                              {d.manual_absent_deduction > 0 ? <span className="text-red-600 font-semibold">−৳{d.manual_absent_deduction}</span> : <>৳{d.day_earned}</>}
+                              {d.manual_absent_deduction > 0 && d.day_earned > 0 && <span className="block text-[10px] text-gray-500">(দিন মোট ৳{d.day_earned})</span>}
+                            </td>
+                          </tr>
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -3489,7 +3504,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
     fetchPartners();
     setPartnerLogLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/partners/all-transactions`);
+      const res = await fetch(`${API_BASE}/api/partners/all-transactions`, { headers: authHeaders(), cache: 'no-store' });
       const data = await res.json();
       setAllPartnerTransactions(data.status === 'ok' ? data.transactions : []);
       // মেসেঞ্জার/হোয়াটসঅ্যাপের মতো — লগ খুললেই সরাসরি সবচেয়ে নতুন (নিচের) কথোপকথনে নিয়ে যাওয়া হবে।
@@ -4004,7 +4019,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
 
   const fetchAllPartnerTransactions = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/partners/all-transactions`);
+      const res = await fetch(`${API_BASE}/api/partners/all-transactions`, { headers: authHeaders(), cache: 'no-store' });
       const data = await res.json();
       setAllPartnerTransactions(data.status === 'ok' ? data.transactions : []);
     } catch (err) {
@@ -4404,7 +4419,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
     { icon: <Clock size={24} className="text-[#2587A5]" />, bg: 'bg-[#2587A5]/10', label: 'ডিউটি টাইম যুক্ত করুন', onClick: () => { setShowDutyForm(true); fetchDutySchedule(); } },
     { icon: <Clock size={24} className="text-[#0A6B78]" />, bg: 'bg-[#0A6B78]/10', label: 'ওভারটাইম', onClick: openOvertimePage },
     { icon: <Lock size={24} className="text-[#034B58]" />, bg: 'bg-[#034B58]/10', label: 'পাইকার যুক্ত করুন', onClick: () => openWholesalerLock('add') },
-    { icon: <LogIn size={24} className="text-[#15966F]" />, bg: 'bg-[#15966F]/10', label: 'ম্যানুয়ালি উপস্থিত যুক্ত করুন', onClick: openManualAttendancePage },
+    { icon: <LogIn size={24} className="text-[#15966F]" />, bg: 'bg-[#15966F]/10', label: 'ম্যানুয়ালি উপস্থিত/অনুপস্থিত', onClick: openManualAttendancePage },
     { icon: <FileText size={24} className="text-[#075B68]" />, bg: 'bg-[#075B68]/10', label: 'সেল সামারি', onClick: openSaleSummaryPage },
   ];
 
@@ -4538,17 +4553,28 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
                     </thead>
                     <tbody>
                       {cashMemoData.salary.breakdown.map((d, i) => (
-                        <tr key={i} className="border-b border-gray-100">
-                          <td className="py-1.5">{d.date}</td>
-                          <td className="py-1.5">
-                            {d.status === 'present' && 'উপস্থিত'}
-                            {d.status === 'absent' && 'অনুপস্থিত'}
-                            {d.status === 'holiday' && 'শুক্রবার (ছুটি)'}
-                            {d.status === 'offline' && 'অফলাইন'}
-                          </td>
-                          <td className="py-1.5 text-right">{d.late_minutes || '—'}</td>
-                          <td className="py-1.5 text-right">৳{d.day_earned}</td>
-                        </tr>
+                        <React.Fragment key={i}>
+                          {d.manual_absent_deduction > 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-0 text-red-500 text-[10px] leading-none overflow-hidden whitespace-nowrap">------------------------------------------------</td>
+                            </tr>
+                          )}
+                          <tr className="border-b border-gray-100">
+                            <td className="py-1.5">{d.date}</td>
+                            <td className="py-1.5">
+                              {d.status === 'present' && 'উপস্থিত'}
+                              {d.status === 'absent' && 'অনুপস্থিত'}
+                              {d.status === 'holiday' && 'শুক্রবার (ছুটি)'}
+                              {d.status === 'offline' && 'অফলাইন'}
+                              {d.manual_absent_deduction > 0 && <span className="block text-[10px] text-red-500">উপস্থিত ছিলেন, পরে অনুপস্থিত দেখানো হয়েছে</span>}
+                            </td>
+                            <td className="py-1.5 text-right">{d.late_minutes || '—'}</td>
+                            <td className="py-1.5 text-right">
+                              {d.manual_absent_deduction > 0 ? <span className="text-red-600 font-semibold">−৳{d.manual_absent_deduction}</span> : <>৳{d.day_earned}</>}
+                              {d.manual_absent_deduction > 0 && d.day_earned > 0 && <span className="block text-[10px] text-gray-500">(দিন মোট ৳{d.day_earned})</span>}
+                            </td>
+                          </tr>
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -8717,20 +8743,12 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
           ))}
         </div>
 
-        {/* Quick actions — neumorphic raised icon circles */}
-        <div className="px-4 mt-6">
-          <h2 className="text-lg font-bold text-[#1a2e2c] mb-3">Quick actions</h2>
-          <div className="grid grid-cols-4 gap-3">
-            {quickActions.map((a, i) => (
-              <button key={i} onClick={a.onClick} className="flex flex-col items-center gap-2 active:opacity-70">
-                <div className="w-14 h-14 rounded-2xl bg-[#e4e9e8] flex items-center justify-center shadow-[6px_6px_14px_#c3c9c8,-6px_-6px_14px_#ffffff] active:shadow-[inset_4px_4px_8px_#c3c9c8,inset_-4px_-4px_8px_#ffffff]">
-                  {a.icon}
-                </div>
-                <span className="text-xs text-[#3a4a47] text-center leading-tight">{a.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Quick actions — চেপে ধরে টেনে সাজানো যায় (QuickActionsGrid.jsx) */}
+        <QuickActionsGrid
+          actions={quickActions}
+          apiBase={API_BASE}
+          getHeaders={() => ({ Authorization: `Bearer ${localStorage.getItem('maya_token') || ''}` })}
+        />
 
         {/* স্টাফ/কারিগর লিস্ট — প্রিভিউ */}
         <div className="px-4 mt-6">
