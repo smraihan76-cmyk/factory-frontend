@@ -1291,6 +1291,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
   const [selectedWholesalerForAccount, setSelectedWholesalerForAccount] = useState(null);
   const [wholesalerAccountSummary, setWholesalerAccountSummary] = useState(null);
   const [showWholesalerDetail, setShowWholesalerDetail] = useState(false);
+  const [viewingLedgerReactors, setViewingLedgerReactors] = useState(null);
 
   // ম্যানুয়ালি উপস্থিতি যুক্ত করুন state
   const [showManualAttendancePage, setShowManualAttendancePage] = useState(false);
@@ -3790,7 +3791,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
   const fetchWholesalerAccountData = async (wid) => {
     try {
       const [ledgerRes, summaryRes, ratesRes] = await Promise.all([
-        fetch(`${API_BASE}/api/wholesalers/${wid}/ledger`),
+        fetch(`${API_BASE}/api/wholesalers/${wid}/ledger`, { headers: authHeaders() }),
         fetch(`${API_BASE}/api/wholesalers/${wid}/summary`),
         fetch(`${API_BASE}/api/wholesalers/${wid}/rates`)
       ]);
@@ -3918,6 +3919,22 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
       alert(err.message || 'PDF তৈরি করতে সমস্যা হয়েছে');
     } finally {
       setSharingPDF(false);
+    }
+  };
+
+  const toggleLedgerReaction = async (entry) => {
+    const nowReacted = !entry.reacted_by_me;
+    setWholesalerLedger((prev) => prev.map((e) => e.id === entry.id ? { ...e, reacted_by_me: nowReacted, reaction_count: (e.reaction_count || 0) + (nowReacted ? 1 : -1) } : e));
+    try {
+      const res = await fetch(`${API_BASE}/api/wholesalers/ledger/${entry.id}/react`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setWholesalerLedger((prev) => prev.map((e) => e.id === entry.id ? { ...e, reacted_by_me: data.reacted_by_me, reaction_count: data.reaction_count, reactors: data.reactors } : e));
+      } else {
+        fetchWholesalerAccountData(selectedWholesalerForAccount.id);
+      }
+    } catch (err) {
+      fetchWholesalerAccountData(selectedWholesalerForAccount.id);
     }
   };
 
@@ -6612,6 +6629,17 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
             <h1 className="text-base font-bold">{w.name}</h1>
           </div>
 
+          {viewingLedgerReactors && (
+            <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-6" onClick={() => setViewingLedgerReactors(null)}>
+              <div className="bg-white rounded-2xl p-4 w-full max-w-xs" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-sm font-bold mb-3 text-gray-800">❤️ কে কে রিয়েক্ট দিয়েছে</h3>
+                {viewingLedgerReactors.map((r, i) => (
+                  <p key={i} className="text-sm text-gray-700 py-1.5 border-b border-gray-100">{r.name}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {showWholesalerDetail && (() => {
             const goods = buildWholesalerDetail('add');
             const rets = buildWholesalerDetail('return');
@@ -6769,6 +6797,16 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        <div className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full print:hidden ${
+                          entry.reaction_count > 0 ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-400'
+                        }`}>
+                          <button onClick={() => toggleLedgerReaction(entry)} className="flex items-center">
+                            <Heart size={13} fill={entry.reacted_by_me ? '#dc2626' : 'none'} />
+                          </button>
+                          {entry.reaction_count > 0 && (
+                            <button onClick={() => setViewingLedgerReactors(entry.reactors || [])}>{entry.reaction_count}</button>
+                          )}
+                        </div>
                         <span className={`text-sm font-bold ${
                           entry.entry_type === 'add' ? 'text-emerald-600' : entry.entry_type === 'return' ? 'text-gray-900' : 'text-red-600'
                         }`}>
