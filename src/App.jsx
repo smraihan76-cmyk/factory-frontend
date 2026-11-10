@@ -1290,6 +1290,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
   const [showWholesalerAccountSelectPage, setShowWholesalerAccountSelectPage] = useState(false);
   const [selectedWholesalerForAccount, setSelectedWholesalerForAccount] = useState(null);
   const [wholesalerAccountSummary, setWholesalerAccountSummary] = useState(null);
+  const [showWholesalerDetail, setShowWholesalerDetail] = useState(false);
 
   // ম্যানুয়ালি উপস্থিতি যুক্ত করুন state
   const [showManualAttendancePage, setShowManualAttendancePage] = useState(false);
@@ -1655,7 +1656,7 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
     manualAttendanceStaff: [!!manualAttendanceStaff, () => setManualAttendanceStaff(null)],
     showWholesalerAccountSelectPage: [showWholesalerAccountSelectPage, () => setShowWholesalerAccountSelectPage(false)],
     deletingWholesalerId: [!!deletingWholesalerId, () => setDeletingWholesalerId(null)],
-    selectedWholesalerForAccount: [!!selectedWholesalerForAccount, () => setSelectedWholesalerForAccount(null)],
+    selectedWholesalerForAccount: [!!selectedWholesalerForAccount, () => { setShowWholesalerDetail(false); setSelectedWholesalerForAccount(null); }],
     ledgerForm: [!!ledgerForm, () => setLedgerForm(null)],
     paymentForm: [!!paymentForm, () => setPaymentForm(null)],
     showProductRefList: [showProductRefList, () => setShowProductRefList(false)],
@@ -3872,6 +3873,37 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
     window.open(`${API_BASE}/api/sticker-html/${entry.id}?token=${encodeURIComponent(token)}`, '_blank');
   };
 
+
+  // বিস্তারিত সামারি — পুরো লগ থেকে প্রোডাক্ট + রেট অনুযায়ী পিস গুণ করে (মাল ও রিটার্ন আলাদা)
+  const buildWholesalerDetail = (entryType) => {
+    const map = {};
+    for (const e of wholesalerLedger) {
+      if (e.entry_type !== entryType || e.quantity == null) continue;
+      const rate = parseFloat(e.price_per_unit) || 0;
+      const key = `${e.product_name}|${rate}`;
+      if (!map[key]) map[key] = { name: e.product_name, rate, qty: 0, amount: 0 };
+      map[key].qty += parseFloat(e.quantity) || 0;
+      map[key].amount += parseFloat(e.amount) || 0;
+    }
+    const rows = Object.values(map).sort((a, b) => String(a.name).localeCompare(String(b.name), 'bn') || a.rate - b.rate);
+    return { rows, totalQty: rows.reduce((t, r) => t + r.qty, 0), totalAmount: rows.reduce((t, r) => t + r.amount, 0) };
+  };
+
+  const shareWholesalerDetailPDF = async () => {
+    setSharingPDF(true);
+    try {
+      await generateServerPDF(
+        'wholesaler-detail-content',
+        `বিস্তারিত-সামারি-${selectedWholesalerForAccount?.name || 'পাইকার'}`,
+        'বিস্তারিত সামারি',
+        authHeaders()
+      );
+    } catch (err) {
+      alert(err.message || 'PDF তৈরি করতে সমস্যা হয়েছে');
+    } finally {
+      setSharingPDF(false);
+    }
+  };
 
   const shareWholesalerFullAccount = async () => {
     setSharingPDF(true);
@@ -6580,6 +6612,69 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
             <h1 className="text-base font-bold">{w.name}</h1>
           </div>
 
+          {showWholesalerDetail && (() => {
+            const goods = buildWholesalerDetail('add');
+            const rets = buildWholesalerDetail('return');
+            const Section = ({ title, data, color }) => (
+              <div className="mb-5">
+                <h3 className={`text-sm font-bold mb-2 ${color}`}>{title}</h3>
+                {data.rows.length === 0 ? (
+                  <p className="text-xs text-gray-400">কোনো এন্ট্রি নেই</p>
+                ) : (
+                  <>
+                    {data.rows.map((r, i) => (
+                      <div key={i} className="py-1.5 border-b border-gray-100 text-sm">
+                        <p className="text-gray-900 font-medium">{r.name}</p>
+                        <div className="flex justify-between text-gray-600">
+                          <span>{r.rate} × {r.qty} পিস</span>
+                          <span className="font-semibold text-gray-900">= ৳{+r.amount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex justify-between pt-2 text-sm font-bold text-gray-900">
+                      <span>মোট {data.totalQty} পিস</span>
+                      <span>৳{+data.totalAmount.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+            return (
+              <div className="fixed inset-0 z-50 bg-[#F8FAFA] overflow-y-auto flex justify-center">
+                <div className="w-full sm:max-w-sm min-h-screen pb-10">
+                  <div className="bg-[#075B68] text-white px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+                    <button onClick={() => setShowWholesalerDetail(false)} className="text-white shrink-0">
+                      <ChevronRight size={20} className="rotate-180" />
+                    </button>
+                    <h1 className="text-base font-bold flex-1">বিস্তারিত সামারি</h1>
+                    <button onClick={shareWholesalerDetailPDF} disabled={sharingPDF} className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center disabled:opacity-60">
+                      {sharingPDF ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    <div id="wholesaler-detail-content">
+                      <div className="text-center border-b-2 border-dashed border-gray-300 pb-3 mb-4">
+                        <h1 className="text-xl font-extrabold text-[#075B68]">Maya Garments</h1>
+                        <p className="text-xs text-gray-500 mt-1">বিস্তারিত সামারি — {w.name}</p>
+                        <p className="text-xs text-gray-400 mt-1">তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
+                      </div>
+                      <Section title="মালের হিসাব (রেট × পিস)" data={goods} color="text-emerald-700" />
+                      <Section title="রিটার্নের হিসাব (রেট × পিস)" data={rets} color="text-gray-900" />
+                      {wholesalerAccountSummary && (
+                        <div className="bg-white rounded-2xl border-2 border-gray-200 p-3 text-sm">
+                          <div className="flex justify-between mb-1"><span className="text-gray-600">মোট মালের মূল্য</span><span className="font-semibold">৳{wholesalerAccountSummary.total_add ?? 0}</span></div>
+                          <div className="flex justify-between mb-1"><span className="text-gray-600">মোট রিটার্ন</span><span className="font-semibold text-red-600">৳{wholesalerAccountSummary.total_return ?? 0}</span></div>
+                          <div className="flex justify-between mb-1"><span className="text-gray-600">মোট পরিশোধ</span><span className="font-semibold text-emerald-700">৳{wholesalerAccountSummary.total_paid}</span></div>
+                          <div className="flex justify-between pt-1.5 border-t border-gray-200"><span className="font-bold">বর্তমান দেনা</span><span className="font-extrabold text-[#075B68]">৳{wholesalerAccountSummary.current_due}</span></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="p-4">
             {/* ৪টা ট্যাব */}
             <div className="grid grid-cols-4 gap-2 mb-4">
@@ -6613,8 +6708,12 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
             {wholesalerAccountSummary && (
               <div className="bg-white rounded-2xl shadow-md border-2 border-gray-200 p-4 mb-4">
                 <div className="flex justify-between text-sm mb-1.5">
-                  <span className="text-gray-600">মোট মূল্য</span>
-                  <span className="font-semibold text-gray-900">৳ {wholesalerAccountSummary.total_value}</span>
+                  <span className="text-gray-600">মোট মালের মূল্য</span>
+                  <span className="font-semibold text-gray-900">৳ {wholesalerAccountSummary.total_add ?? 0}</span>
+                </div>
+                <div className="flex justify-between text-sm mb-1.5">
+                  <span className="text-gray-600">মোট রিটার্ন</span>
+                  <span className="font-semibold text-red-600">৳ {wholesalerAccountSummary.total_return ?? 0}</span>
                 </div>
                 <div className="flex justify-between text-sm mb-1.5">
                   <span className="text-gray-600">মোট পরিশোধ</span>
@@ -6630,13 +6729,21 @@ function Dashboard({ currentUser, onLogout, onUpdateUser }) {
             {/* লগ */}
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-gray-700">লগ</h3>
-              <button
-                onClick={shareWholesalerFullAccount}
-                disabled={sharingPDF}
-                className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center disabled:opacity-60 print:hidden"
-              >
-                {sharingPDF ? <Loader2 size={14} className="animate-spin text-sky-700" /> : <Share2 size={14} className="text-sky-700" />}
-              </button>
+              <div className="flex items-center gap-2 print:hidden">
+                <button
+                  onClick={() => setShowWholesalerDetail(true)}
+                  className="px-3 h-8 rounded-full bg-[#075B68] text-white text-xs font-semibold"
+                >
+                  বিস্তারিত সামারি
+                </button>
+                <button
+                  onClick={shareWholesalerFullAccount}
+                  disabled={sharingPDF}
+                  className="w-8 h-8 rounded-full bg-sky-100 flex items-center justify-center disabled:opacity-60"
+                >
+                  {sharingPDF ? <Loader2 size={14} className="animate-spin text-sky-700" /> : <Share2 size={14} className="text-sky-700" />}
+                </button>
+              </div>
             </div>
             {wholesalerLedger.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-8">এখনো কোনো এন্ট্রি নেই</p>
